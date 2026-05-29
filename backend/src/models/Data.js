@@ -2,6 +2,60 @@ import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
 const { Schema, model } = mongoose;
 
+// UserSchema
+const ROLES = ['super-admin', 'hospital-admin', 'doctor', 'patient', 'pharmacist'];
+
+const UserSchema = new Schema({
+  name: { 
+    type: String, 
+    required: [true, 'Name is required'], 
+    trim: true 
+  },
+  email: { 
+    type: String, 
+    required: [true, 'Email is required'], 
+    unique: true, 
+    lowercase: true, 
+    match: [/^\S+@\S+\.\S+$/, 'Please use a valid email address'] 
+  },
+  password: { 
+    type: String, 
+    required: [true, 'Password is required'], 
+    minlength: [8, 'Password must be at least 8 characters'] 
+  },
+  role: { 
+    type: String, 
+    enum: {
+      values: ROLES,
+      message: '{VALUE} is not a valid role'
+    },
+    default: 'patient'
+  },
+  // Conditionally required field based on the role
+  isActive: { 
+    type: Boolean, 
+    default: true 
+  },
+  hospitalId : [{
+    type: Schema.Types.ObjectId,
+    ref: 'Hospital',
+    required: function() {
+      return this.role !== 'super-admin';
+    }
+  }]
+}, { timestamps: true });
+
+// Pre-save hook to hash passwords
+UserSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next();
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 // 1. Hospital Schema
 const hospitalSchema = new Schema({
   name: { 
@@ -31,12 +85,12 @@ const hospitalSchema = new Schema({
 const appointmentSchema = new Schema({
   patientId: { 
     type: Schema.Types.ObjectId, 
-    ref: 'Patient', // Assuming a Patient model exists
+    ref: 'User', // Assuming a Patient model exists
     required: true 
   },
   doctorId: { 
     type: Schema.Types.ObjectId, 
-    ref: 'Doctor',  // Assuming a Doctor model exists
+    ref: 'User',  // Assuming a Doctor model exists
     required: true 
   },
   hospitalId: { 
@@ -60,62 +114,38 @@ const appointmentSchema = new Schema({
   }
 }, { timestamps: true });
 
-// UserSchema
-const ROLES = ['super-admin', 'hospital-admin', 'doctor', 'patient', 'pharmacist'];
-
-const UserSchema = new mongoose.Schema({
-  name: { 
+// Electronic Health Record Schema
+const EHRSchema = new Schema({
+  patientId: { 
+    type: Schema.Types.ObjectId, 
+    ref: 'User', 
+    required: true 
+  },
+  doctorId: { 
+    type: Schema.Types.ObjectId, 
+    ref: 'User', 
+    required: true 
+  },
+  hospitalId: { 
+    type: Schema.Types.ObjectId, 
+    ref: 'Hospital', 
+    required: true 
+  },
+  diagnoses: [{ 
     type: String, 
-    required: [true, 'Name is required'], 
     trim: true 
-  },
-  email: { 
-    type: String, 
-    required: [true, 'Email is required'], 
-    unique: true, 
-    lowercase: true, 
-    match: [/^\S+@\S+\.\S+$/, 'Please use a valid email address'] 
-  },
-  password: { 
-    type: String, 
-    required: [true, 'Password is required'], 
-    minlength: [8, 'Password must be at least 8 characters'] 
-  },
-  role: { 
-    type: String, 
-    enum: {
-      values: ROLES,
-      message: '{VALUE} is not a valid role'
-    },
-    default: 'patient'
-  },
-  // Conditionally required field based on the role
-  licenseNumber: {
-    type: String,
-    required: function() {
-      return ['doctor', 'pharmacist'].includes(this.role);
-    }
-  },
-  isActive: { 
-    type: Boolean, 
-    default: true 
-  }
+  }],
+  medications: [MedicationSchema],
+  labResults: [{
+    testName: { type: String, required: true },
+    resultValue: { type: String, required: true },
+    unit: { type: String },
+    date: { type: Date, default: Date.now }
+  }]
 }, { timestamps: true });
 
-// Pre-save hook to hash passwords
-UserSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
-
-
 // Create models
-export const User = mongoose.model('User', UserSchema);
+export const User = model('User', UserSchema);
 export const Hospital = model('Hospital', hospitalSchema);
 export const Appointment = model('Appointment', appointmentSchema);
+export const EHR = model('EHR', EHRSchema);
